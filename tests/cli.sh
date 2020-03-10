@@ -60,6 +60,15 @@ if $bin --list-routes --json --max-legs 1 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --min-transfer 0 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --max-legs 8 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --force >/dev/null 2>&1; then exit 1; fi
+islands=$($bin --list-islands)
+test "$(printf '%s\n' "$islands" | grep -c '^-[ ]')" -eq 6
+printf '%s\n' "$islands" | grep -q -- '- Aster'
+island_json=$($bin --list-islands --json)
+JSON_RESULT="$island_json" python3 -c 'import json,os; r=json.loads(os.environ["JSON_RESULT"]); assert r["schema_version"]==1 and r["islands"]==["Aster","Bramble","Cove","Drift","Ember","Fenn"]'
+if $bin --list-islands --from Aster >/dev/null 2>&1; then exit 1; fi
+if $bin --list-islands --list-routes >/dev/null 2>&1; then exit 1; fi
+if $bin --list-islands --svg /tmp/islands.svg >/dev/null 2>&1; then exit 1; fi
+if $bin --list-islands --force >/dev/null 2>&1; then exit 1; fi
 exact=$($bin --from Aster --to Bramble --at 0 --max-duration 20)
 printf '%s\n' "$exact" | grep -q 'arrive at 20'
 if $bin --from Aster --to Bramble --at 0 --max-duration 19 >/dev/null 2>&1; then exit 1; fi

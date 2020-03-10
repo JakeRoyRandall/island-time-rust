@@ -28,6 +28,8 @@ Repeat `--avoid-route FROM:TO` to exclude a directed ferry edge while planning. 
 
 Use `--list-routes` to print the eight fixed directional ferry timetable entries without planning a journey. Add `--json` for a machine-readable catalogue with `from`, `to`, `first`, `every`, and `travel` fields. It rejects journey options such as `--from`, `--to`, `--at`, `--avoid`, `--via`, `--svg`, and `--max-legs`.
 
+Use `--list-islands` for the six known fictional island names, or add `--json` for schema-1 output with an `islands` array. It is read-only and rejects journey options, `--list-routes`, `--svg`, and `--force`.
+
 Use `--svg FILE` to write an offline SVG map with fixed island nodes, highlighted numbered legs, departure/arrival details, transfer buffer, avoided-island styling, and total arrival. Output creation is exclusive unless `--force` is provided; normal itinerary text still goes to stdout.
 
 Use `--json` for one machine-readable object instead of itinerary text. It contains `schema_version`, `from`, `to`, `via`, `departure`, `arrival`, `max_legs`, `min_transfer`, an `avoid` array, and a `legs` array; each leg has fixed-label `from`/`to` names plus numeric `depart`, `arrive`, and `wait` minutes. The same object is emitted for a same-island trip with an empty `legs` array, so the active constraints are always visible. JSON is produced for both earliest and `--arrive-by` searches, and errors remain on stderr with a nonzero status.

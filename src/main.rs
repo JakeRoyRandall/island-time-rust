@@ -336,6 +336,14 @@ fn list_routes(json: bool) {
         }
     }
 }
+fn list_islands(json: bool) {
+    if json {
+        println!("{{\"schema_version\":1,\"islands\":[{}]}}", ISLANDS.iter().map(|name| format!("\"{}\"", name)).collect::<Vec<_>>().join(","));
+    } else {
+        println!("Island Time islands (fictional network)");
+        for name in ISLANDS { println!("- {}", name); }
+    }
+}
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -354,6 +362,7 @@ fn main() {
     let mut max_duration: Option<u32> = None;
     let mut json = false;
     let mut list = false;
+    let mut list_island_catalogue = false;
     let mut journey_option_used = false;
     let mut i = 0;
     while i < args.len() {
@@ -446,6 +455,7 @@ fn main() {
             "--force" => { force = true; journey_option_used = true },
             "--json" => json = true,
             "--list-routes" => list = true,
+            "--list-islands" => list_island_catalogue = true,
             "--max-legs" => {
                 journey_option_used = true;
                 i += 1;
@@ -474,12 +484,16 @@ fn main() {
         eprintln!("error: invalid --at or --arrive-by value");
         process::exit(2);
     }
-    if list {
-        if journey_option_used {
-            eprintln!("error: --list-routes cannot be combined with journey options");
+    if list || list_island_catalogue {
+        if list && list_island_catalogue {
+            eprintln!("error: choose one catalogue mode");
             process::exit(2);
         }
-        list_routes(json);
+        if journey_option_used {
+            eprintln!("error: catalogue modes cannot be combined with journey options");
+            process::exit(2);
+        }
+        if list { list_routes(json); } else { list_islands(json); }
         return;
     }
     if from_name.is_none() || to_name.is_none() || (at.is_none() == arrive_by.is_none()) {
