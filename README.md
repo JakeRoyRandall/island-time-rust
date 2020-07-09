@@ -11,3 +11,5 @@ cargo run --release -- --from Aster --to Fenn --at 1
 ```
 
 Minutes are integers from 0 through 1440. The graph, schedules, and travel times are fixed in the source. A departure or journey arrival after minute 1440 is unavailable; ties are deterministic by island order. Invalid arguments exit 2 and an unavailable route exits 1. Built with the installed `rustc 1.92.0` toolchain.
+
+The app also accepts repeatable `--avoid ISLAND` filters and `--min-transfer N` (0–120 minutes), which applies only between ferry legs. Avoiding either endpoint makes the route unavailable; duplicate avoid entries are rejected. Without these options, the original itinerary output is unchanged.
