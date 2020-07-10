@@ -1,4 +1,4 @@
-use std::{env, process};
+use std::{env, fs::OpenOptions, io::Write, process};
 
 const ISLANDS: [&str; 6] = ["Aster", "Bramble", "Cove", "Drift", "Ember", "Fenn"];
 #[derive(Clone, Copy)]
@@ -120,6 +120,69 @@ fn route(
     }
     None
 }
+fn write_svg(
+    path: &str,
+    force: bool,
+    from: usize,
+    to: usize,
+    start_time: u32,
+    arrival: u32,
+    legs: &[(usize, usize, u32, u32)],
+    avoid: &[bool; 6],
+    transfer: u32,
+) -> Result<(), String> {
+    let points = [
+        (100, 100),
+        (260, 80),
+        (420, 120),
+        (420, 260),
+        (260, 340),
+        (100, 300),
+    ];
+    let height = 440 + legs.len() as i32 * 26;
+    let mut svg = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"760\" height=\"{height}\" viewBox=\"0 0 760 {height}\"><title>Island Time itinerary</title><desc>Retrospective fictional ferry puzzle created September 2026.</desc><style>text{{font:14px sans-serif}}.avoid{{fill:#eee;stroke:#999;stroke-dasharray:4}}.island{{fill:#dff3f0;stroke:#245}}</style><defs><marker id=\"arrow\" markerWidth=\"8\" markerHeight=\"8\" refX=\"7\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L8,3 L0,6 z\" fill=\"#d65\"/></marker></defs><rect width=\"100%\" height=\"100%\" fill=\"#fffaf0\"/><text x=\"24\" y=\"30\" font-size=\"20\">Island Time itinerary</text>");
+    for (n, &(a, b, _, _)) in legs.iter().enumerate() {
+        let (x1, y1) = points[a];
+        let (x2, y2) = points[b];
+        let dx = (x2 - x1) as f64;
+        let dy = (y2 - y1) as f64;
+        let distance = (dx * dx + dy * dy).sqrt();
+        let end_x = x2 as f64 - dx / distance * 30.0;
+        let end_y = y2 as f64 - dy / distance * 30.0;
+        svg.push_str(&format!("<line x1=\"{x1}\" y1=\"{y1}\" x2=\"{end_x:.2}\" y2=\"{end_y:.2}\" stroke=\"#d65\" stroke-width=\"4\" marker-end=\"url(#arrow)\"/><text x=\"{}\" y=\"{}\">{}</text>", (x1+x2)/2, (y1+y2)/2, n+1));
+    }
+    for (i, &(x, y)) in points.iter().enumerate() {
+        svg.push_str(&format!("<circle class=\"{}\" cx=\"{x}\" cy=\"{y}\" r=\"28\"/><text x=\"{x}\" y=\"{}\" text-anchor=\"middle\">{}</text>", if avoid[i]{"avoid"}else{"island"}, y+5, ISLANDS[i]));
+    }
+    let mut y = 380;
+    svg.push_str(&format!("<text x=\"24\" y=\"{y}\">{} -&gt; {} | depart {} | total arrival {} | transfer buffer {} min</text>", ISLANDS[from], ISLANDS[to], start_time, arrival, transfer));
+    y += 26;
+    for (n, &(a, b, d, end)) in legs.iter().enumerate() {
+        let wait = if n == 0 {
+            d.saturating_sub(start_time)
+        } else {
+            d.saturating_sub(legs[n - 1].3)
+        };
+        svg.push_str(&format!("<text x=\"24\" y=\"{y}\">leg {}: {} -&gt; {} | depart {} | arrive {} | wait {} min</text>", n+1, ISLANDS[a], ISLANDS[b], d, end, wait));
+        y += 26;
+    }
+    svg.push_str(&format!(
+        "<text x=\"24\" y=\"{}\">Retrospective fictional artwork · September 2026</text></svg>",
+        y
+    ));
+    let mut options = OpenOptions::new();
+    options.write(true).create(true);
+    if force {
+        options.truncate(true);
+    } else {
+        options.create_new(true);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|e| format!("cannot write SVG: {e}"))?;
+    file.write_all(svg.as_bytes())
+        .map_err(|e| format!("cannot write SVG: {e}"))
+}
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut from_name = None;
@@ -127,6 +190,8 @@ fn main() {
     let mut at = None;
     let mut avoid = [false; 6];
     let mut transfer = 0;
+    let mut svg_path: Option<String> = None;
+    let mut force = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -165,6 +230,15 @@ fn main() {
                         process::exit(2)
                     });
             }
+            "--svg" => {
+                i += 1;
+                svg_path = args.get(i).cloned();
+                if svg_path.is_none() {
+                    eprintln!("error: --svg requires a file");
+                    process::exit(2);
+                }
+            }
+            "--force" => force = true,
             _ => {
                 eprintln!("usage: island-time --from ISLAND --to ISLAND --at MINUTE [--avoid ISLAND] [--min-transfer N]");
                 process::exit(2);
@@ -195,6 +269,12 @@ fn main() {
     }
     if from == to {
         println!("already at {} at minute {}", ISLANDS[from], at);
+        if let Some(path) = svg_path {
+            if let Err(e) = write_svg(&path, force, from, to, at, at, &[], &avoid, transfer) {
+                eprintln!("error: {e}");
+                process::exit(2);
+            }
+        }
         return;
     }
     match route(from, to, at, &avoid, transfer) {
@@ -203,11 +283,19 @@ fn main() {
                 "route {} -> {} (departed at {}, arrive at {})",
                 ISLANDS[from], ISLANDS[to], at, arrival
             );
-            for (a, b, d, end) in legs {
+            for &(a, b, d, end) in &legs {
                 println!(
                     "  {} -> {}: depart {}, arrive {}",
                     ISLANDS[a], ISLANDS[b], d, end
                 );
+            }
+            if let Some(path) = svg_path {
+                if let Err(e) =
+                    write_svg(&path, force, from, to, at, arrival, &legs, &avoid, transfer)
+                {
+                    eprintln!("error: {e}");
+                    process::exit(2);
+                }
             }
         }
         None => {
@@ -261,5 +349,21 @@ mod tests {
         let mut endpoint = [false; 6];
         endpoint[5] = true;
         assert!(route(0, 5, 0, &endpoint, 0).is_none());
+    }
+    #[test]
+    fn svg_has_structure_and_refuses_overwrite() {
+        let path = "/tmp/island-time-test.svg";
+        let _ = std::fs::remove_file(path);
+        let (_, legs) = route(0, 4, 0, &[false; 6], 0).unwrap();
+        write_svg(path, false, 0, 4, 0, 170, &legs, &[false; 6], 0).unwrap();
+        let svg = std::fs::read_to_string(path).unwrap();
+        assert!(
+            svg.contains("<svg")
+                && svg.contains("<title>")
+                && svg.matches("leg ").count() == 4
+                && svg.contains("wait")
+        );
+        assert!(write_svg(path, false, 0, 4, 0, 170, &legs, &[false; 6], 0).is_err());
+        let _ = std::fs::remove_file(path);
     }
 }
