@@ -239,6 +239,44 @@ fn write_svg(
     file.write_all(svg.as_bytes())
         .map_err(|e| format!("cannot write SVG: {e}"))
 }
+
+fn json_route(
+    from: usize,
+    to: usize,
+    departure: u32,
+    arrival: u32,
+    legs: &[(usize, usize, u32, u32)],
+    max_legs: usize,
+    avoid: &[bool; 6],
+    transfer: u32,
+) -> String {
+    let avoided = (0..ISLANDS.len())
+        .filter(|&i| avoid[i])
+        .map(|i| format!("\"{}\"", ISLANDS[i]))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut output = format!(
+        "{{\"schema_version\":1,\"from\":\"{}\",\"to\":\"{}\",\"departure\":{},\"arrival\":{},\"max_legs\":{},\"min_transfer\":{},\"avoid\":[{}],\"legs\":[",
+        ISLANDS[from], ISLANDS[to], departure, arrival, max_legs, transfer, avoided
+    );
+    for (n, &(a, b, depart, arrive)) in legs.iter().enumerate() {
+        if n > 0 {
+            output.push(',');
+        }
+        let wait = if n == 0 {
+            depart.saturating_sub(departure)
+        } else {
+            depart.saturating_sub(legs[n - 1].3)
+        };
+        output.push_str(&format!(
+            "{{\"from\":\"{}\",\"to\":\"{}\",\"depart\":{},\"arrive\":{},\"wait\":{}}}",
+            ISLANDS[a], ISLANDS[b], depart, arrive, wait
+        ));
+    }
+    output.push_str("]}");
+    output
+}
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut from_name = None;
@@ -251,6 +289,7 @@ fn main() {
     let mut svg_path: Option<String> = None;
     let mut force = false;
     let mut max_legs = 8usize;
+    let mut json = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -308,6 +347,7 @@ fn main() {
                 }
             }
             "--force" => force = true,
+            "--json" => json = true,
             "--max-legs" => {
                 i += 1;
                 max_legs = args
@@ -356,7 +396,23 @@ fn main() {
     }
     if from == to {
         if let Some(deadline) = arrive_by {
-            println!("already at {} by minute {}", ISLANDS[from], deadline);
+            if json {
+                println!(
+                    "{}",
+                    json_route(
+                        from,
+                        to,
+                        deadline,
+                        deadline,
+                        &[],
+                        max_legs,
+                        &avoid,
+                        transfer
+                    )
+                );
+            } else {
+                println!("already at {} by minute {}", ISLANDS[from], deadline);
+            }
             if let Some(path) = svg_path {
                 if let Err(e) = write_svg(
                     &path,
@@ -375,7 +431,14 @@ fn main() {
             }
             return;
         }
-        println!("already at {} at minute {}", ISLANDS[from], at);
+        if json {
+            println!(
+                "{}",
+                json_route(from, to, at, at, &[], max_legs, &avoid, transfer)
+            );
+        } else {
+            println!("already at {} at minute {}", ISLANDS[from], at);
+        }
         if let Some(path) = svg_path {
             if let Err(e) = write_svg(&path, force, from, to, at, at, &[], &avoid, transfer) {
                 eprintln!("error: {e}");
@@ -393,6 +456,21 @@ fn main() {
     };
     match planned {
         Some((departure, arrival, legs)) => {
+            if json {
+                println!(
+                    "{}",
+                    json_route(from, to, departure, arrival, &legs, max_legs, &avoid, transfer)
+                );
+                if let Some(path) = svg_path {
+                    if let Err(e) = write_svg(
+                        &path, force, from, to, departure, arrival, &legs, &avoid, transfer,
+                    ) {
+                        eprintln!("error: {e}");
+                        process::exit(2);
+                    }
+                }
+                return;
+            }
             println!(
                 "route {} -> {} (departed at {}, arrive at {})",
                 ISLANDS[from], ISLANDS[to], departure, arrival
