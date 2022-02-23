@@ -317,6 +317,22 @@ fn json_route(
     output
 }
 
+fn list_routes(json: bool) {
+    if json {
+        let routes = FERRIES.iter().map(|f| format!(
+            "{{\"from\":\"{}\",\"to\":\"{}\",\"first\":{},\"every\":{},\"travel\":{}}}",
+            ISLANDS[f.from], ISLANDS[f.to], f.first, f.every, f.travel
+        )).collect::<Vec<_>>().join(",");
+        println!("{{\"schema_version\":1,\"routes\":[{}]}}", routes);
+    } else {
+        println!("Island Time ferry routes (fictional timetable)");
+        println!("from -> to | first departure | every minutes | travel minutes");
+        for f in FERRIES {
+            println!("{} -> {} | {} | {} | {}", ISLANDS[f.from], ISLANDS[f.to], f.first, f.every, f.travel);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut from_name = None;
@@ -331,18 +347,23 @@ fn main() {
     let mut force = false;
     let mut max_legs = 8usize;
     let mut json = false;
+    let mut list = false;
+    let mut journey_option_used = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--from" => {
+                journey_option_used = true;
                 i += 1;
                 from_name = args.get(i);
             }
             "--to" => {
+                journey_option_used = true;
                 i += 1;
                 to_name = args.get(i);
             }
             "--via" => {
+                journey_option_used = true;
                 if via_name.is_some() {
                     eprintln!("error: duplicate --via");
                     process::exit(2);
@@ -357,6 +378,7 @@ fn main() {
                 };
             }
             "--at" => {
+                journey_option_used = true;
                 i += 1;
                 at = args.get(i).and_then(|v| v.parse().ok());
                 if at.is_none() {
@@ -364,6 +386,7 @@ fn main() {
                 }
             }
             "--arrive-by" => {
+                journey_option_used = true;
                 i += 1;
                 arrive_by = args.get(i).and_then(|v| parse_clock(v));
                 if arrive_by.is_none() {
@@ -371,6 +394,7 @@ fn main() {
                 }
             }
             "--avoid" => {
+                journey_option_used = true;
                 i += 1;
                 let name = args.get(i).and_then(|v| island(v)).unwrap_or_else(|| {
                     eprintln!("error: unknown avoid island");
@@ -383,6 +407,7 @@ fn main() {
                 avoid[name] = true;
             }
             "--min-transfer" => {
+                journey_option_used = true;
                 i += 1;
                 transfer = args
                     .get(i)
@@ -394,6 +419,7 @@ fn main() {
                     });
             }
             "--svg" => {
+                journey_option_used = true;
                 i += 1;
                 svg_path = args.get(i).cloned();
                 if svg_path.is_none() {
@@ -401,9 +427,11 @@ fn main() {
                     process::exit(2);
                 }
             }
-            "--force" => force = true,
+            "--force" => { force = true; journey_option_used = true },
             "--json" => json = true,
+            "--list-routes" => list = true,
             "--max-legs" => {
+                journey_option_used = true;
                 i += 1;
                 max_legs = args
                     .get(i)
@@ -415,7 +443,7 @@ fn main() {
                     });
             }
             _ => {
-                eprintln!("usage: island-time --from ISLAND --to ISLAND --at MINUTE [--avoid ISLAND] [--min-transfer N]");
+                eprintln!("usage: island-time --from ISLAND --to ISLAND --at MINUTE [--avoid ISLAND] [--min-transfer N] | --list-routes [--json]");
                 process::exit(2);
             }
         }
@@ -424,6 +452,14 @@ fn main() {
     if bad_time {
         eprintln!("error: invalid --at or --arrive-by value");
         process::exit(2);
+    }
+    if list {
+        if journey_option_used {
+            eprintln!("error: --list-routes cannot be combined with journey options");
+            process::exit(2);
+        }
+        list_routes(json);
+        return;
     }
     if from_name.is_none() || to_name.is_none() || (at.is_none() == arrive_by.is_none()) {
         eprintln!("usage: island-time --from ISLAND --to ISLAND (--at MINUTE | --arrive-by HH:MM)");

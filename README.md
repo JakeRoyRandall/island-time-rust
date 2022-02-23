@@ -9,6 +9,7 @@ cargo build --release
 cargo test --release
 cargo run --release -- --from Aster --to Fenn --at 1
 cargo run --release -- --from Aster --to Fenn --arrive-by 02:00
+cargo run --release -- --list-routes --json
 ```
 
 Minutes are integers from 0 through 1440. The graph, schedules, and travel times are fixed in the source. A departure or journey arrival after minute 1440 is unavailable; ties are deterministic by island order. Invalid arguments exit 2 and an unavailable route exits 1. Built with the installed `rustc 1.92.0` toolchain.
@@ -20,6 +21,8 @@ Use exactly one of `--at MINUTE` or `--arrive-by HH:MM`. The latter searches the
 `--max-legs N` limits either search to `1..8` ferry legs. The planner tracks each island and leg count separately, so a faster route that uses more legs cannot hide a feasible constrained route.
 
 `--via ISLAND` requires the itinerary to visit one waypoint while sharing the same route search, leg budget, transfer buffer, timetable, and avoid filters. The waypoint may be the origin or destination; avoiding it is an error. This applies to both earliest-arrival and `--arrive-by` searches.
+
+Use `--list-routes` to print the eight fixed directional ferry timetable entries without planning a journey. Add `--json` for a machine-readable catalogue with `from`, `to`, `first`, `every`, and `travel` fields. It rejects journey options such as `--from`, `--to`, `--at`, `--avoid`, `--via`, `--svg`, and `--max-legs`.
 
 Use `--svg FILE` to write an offline SVG map with fixed island nodes, highlighted numbered legs, departure/arrival details, transfer buffer, avoided-island styling, and total arrival. Output creation is exclusive unless `--force` is provided; normal itinerary text still goes to stdout.
 

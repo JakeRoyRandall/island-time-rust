@@ -45,4 +45,19 @@ $bin --from Aster --to Fenn --at 0 --via Bramble --via Aster >/dev/null 2>&1
 status=$?
 set -e
 test "$status" -eq 2
+routes=$($bin --list-routes)
+printf '%s\n' "$routes" | grep -q 'Aster -> Bramble | 0 | 30 | 20'
+test "$(printf '%s\n' "$routes" | grep -cE '^[A-Z].* -> .* \| [0-9]')" -eq 8
+route_json=$($bin --list-routes --json)
+JSON_RESULT="$route_json" python3 - <<'PY'
+import json, os
+r=json.loads(os.environ['JSON_RESULT']); assert r['schema_version']==1 and len(r['routes'])==8
+assert next(x for x in r['routes'] if x['from']=='Aster' and x['to']=='Bramble') == {'from':'Aster','to':'Bramble','first':0,'every':30,'travel':20}
+PY
+if $bin --list-routes --from Aster >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --at 0 >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --json --max-legs 1 >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --min-transfer 0 >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --max-legs 8 >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --force >/dev/null 2>&1; then exit 1; fi
 echo 'CLI parity and max-legs bounds passed'
