@@ -321,9 +321,9 @@ fn json_route(
     output
 }
 
-fn list_routes(json: bool) {
+fn list_routes(json: bool, from_filter: Option<usize>) {
     if json {
-        let routes = FERRIES.iter().map(|f| format!(
+        let routes = FERRIES.iter().filter(|f| from_filter.map_or(true, |from| f.from == from)).map(|f| format!(
             "{{\"from\":\"{}\",\"to\":\"{}\",\"first\":{},\"every\":{},\"travel\":{}}}",
             ISLANDS[f.from], ISLANDS[f.to], f.first, f.every, f.travel
         )).collect::<Vec<_>>().join(",");
@@ -331,7 +331,7 @@ fn list_routes(json: bool) {
     } else {
         println!("Island Time ferry routes (fictional timetable)");
         println!("from -> to | first departure | every minutes | travel minutes");
-        for f in FERRIES {
+        for f in FERRIES.iter().filter(|f| from_filter.map_or(true, |from| f.from == from)) {
             println!("{} -> {} | {} | {} | {}", ISLANDS[f.from], ISLANDS[f.to], f.first, f.every, f.travel);
         }
     }
@@ -348,6 +348,7 @@ fn list_islands(json: bool) {
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut from_name = None;
+    let mut from_island_name = None;
     let mut to_name = None;
     let mut via_name = None;
     let mut at = None;
@@ -371,6 +372,17 @@ fn main() {
                 journey_option_used = true;
                 i += 1;
                 from_name = args.get(i);
+            }
+            "--from-island" => {
+                if from_island_name.is_some() {
+                    eprintln!("error: duplicate --from-island");
+                    process::exit(2);
+                }
+                i += 1;
+                from_island_name = match args.get(i) {
+                    Some(name) => Some(name),
+                    None => { eprintln!("error: --from-island requires an island"); process::exit(2); }
+                };
             }
             "--to" => {
                 journey_option_used = true;
@@ -484,16 +496,23 @@ fn main() {
         eprintln!("error: invalid --at or --arrive-by value");
         process::exit(2);
     }
+    if from_island_name.is_some() && !list {
+        eprintln!("error: --from-island requires --list-routes");
+        process::exit(2);
+    }
     if list || list_island_catalogue {
         if list && list_island_catalogue {
             eprintln!("error: choose one catalogue mode");
             process::exit(2);
         }
-        if journey_option_used {
+        if journey_option_used || (list_island_catalogue && from_island_name.is_some()) {
             eprintln!("error: catalogue modes cannot be combined with journey options");
             process::exit(2);
         }
-        if list { list_routes(json); } else { list_islands(json); }
+        if list {
+            let from_filter = from_island_name.and_then(|value| island(value)).unwrap_or_else(|| { if from_island_name.is_some() { eprintln!("error: unknown island filter"); process::exit(2) } else { 0 } });
+            list_routes(json, if from_island_name.is_some() { Some(from_filter) } else { None });
+        } else { list_islands(json); }
         return;
     }
     if from_name.is_none() || to_name.is_none() || (at.is_none() == arrive_by.is_none()) {

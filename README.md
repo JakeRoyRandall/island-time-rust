@@ -26,7 +26,7 @@ Repeat `--avoid-route FROM:TO` to exclude a directed ferry edge while planning. 
 
 `--via ISLAND` requires the itinerary to visit one waypoint while sharing the same route search, leg budget, transfer buffer, timetable, and avoid filters. The waypoint may be the origin or destination; avoiding it is an error. This applies to both earliest-arrival and `--arrive-by` searches.
 
-Use `--list-routes` to print the eight fixed directional ferry timetable entries without planning a journey. Add `--json` for a machine-readable catalogue with `from`, `to`, `first`, `every`, and `travel` fields. It rejects journey options such as `--from`, `--to`, `--at`, `--avoid`, `--via`, `--svg`, and `--max-legs`.
+Use `--list-routes` to print the eight fixed directional ferry timetable entries without planning a journey. Add catalogue-only `--from-island ISLAND` to show only that island's outbound routes; the filter is case-insensitive and must name a known island. The journey `--from` flag remains rejected in catalogue mode. Add `--json` for a machine-readable catalogue with `from`, `to`, `first`, `every`, and `travel` fields. Other journey options such as `--to`, `--at`, `--avoid`, `--via`, `--svg`, and `--max-legs` remain rejected.
 
 Use `--list-islands` for the six known fictional island names, or add `--json` for schema-1 output with an `islands` array. It is read-only and rejects journey options, `--list-routes`, `--svg`, and `--force`.
 

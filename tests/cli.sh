@@ -54,7 +54,11 @@ import json, os
 r=json.loads(os.environ['JSON_RESULT']); assert r['schema_version']==1 and len(r['routes'])==8
 assert next(x for x in r['routes'] if x['from']=='Aster' and x['to']=='Bramble') == {'from':'Aster','to':'Bramble','first':0,'every':30,'travel':20}
 PY
+filtered=$($bin --list-routes --from-island Aster)
+test "$(printf '%s\n' "$filtered" | grep -cE '^[A-Z].* -> .* \| [0-9]')" -eq 2
+printf '%s\n' "$filtered" | grep -q 'Aster -> Fenn'
 if $bin --list-routes --from Aster >/dev/null 2>&1; then exit 1; fi
+if $bin --list-islands --from Aster >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --at 0 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --json --max-legs 1 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --min-transfer 0 >/dev/null 2>&1; then exit 1; fi
@@ -69,6 +73,10 @@ if $bin --list-islands --from Aster >/dev/null 2>&1; then exit 1; fi
 if $bin --list-islands --list-routes >/dev/null 2>&1; then exit 1; fi
 if $bin --list-islands --svg /tmp/islands.svg >/dev/null 2>&1; then exit 1; fi
 if $bin --list-islands --force >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --from-island Nope >/dev/null 2>&1; then exit 1; fi
+if $bin --from-island Aster >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --from-island >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --from-island Aster --from-island Cove >/dev/null 2>&1; then exit 1; fi
 exact=$($bin --from Aster --to Bramble --at 0 --max-duration 20)
 printf '%s\n' "$exact" | grep -q 'arrive at 20'
 if $bin --from Aster --to Bramble --at 0 --max-duration 19 >/dev/null 2>&1; then exit 1; fi
