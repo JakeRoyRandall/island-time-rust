@@ -20,6 +20,8 @@ Use exactly one of `--at MINUTE` or `--arrive-by HH:MM`. The latter searches the
 
 `--max-legs N` limits either search to `1..8` ferry legs. The planner tracks each island and leg count separately, so a faster route that uses more legs cannot hide a feasible constrained route.
 
+`--max-duration MINUTES` limits elapsed time from the requested `--at` minute to arrival, or from the selected departure to arrival for `--arrive-by`; it accepts `0..1440`. Deadline searches continue to earlier departures until both constraints fit. It is rejected by `--list-routes`.
+
 Repeat `--avoid-route FROM:TO` to exclude a directed ferry edge while planning. Island names are case-insensitive and each edge may be listed once; the reverse direction is independent. The filter applies to earliest, deadline, waypoint, and leg-limited searches and is rejected by `--list-routes`.
 
 `--via ISLAND` requires the itinerary to visit one waypoint while sharing the same route search, leg budget, transfer buffer, timetable, and avoid filters. The waypoint may be the origin or destination; avoiding it is an error. This applies to both earliest-arrival and `--arrive-by` searches.

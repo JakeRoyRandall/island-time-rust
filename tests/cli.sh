@@ -60,6 +60,16 @@ if $bin --list-routes --json --max-legs 1 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --min-transfer 0 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --max-legs 8 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --force >/dev/null 2>&1; then exit 1; fi
+exact=$($bin --from Aster --to Bramble --at 0 --max-duration 20)
+printf '%s\n' "$exact" | grep -q 'arrive at 20'
+if $bin --from Aster --to Bramble --at 0 --max-duration 19 >/dev/null 2>&1; then exit 1; fi
+deadline_duration=$($bin --from Aster --to Bramble --arrive-by 01:00 --max-duration 20 --json)
+JSON_RESULT="$deadline_duration" python3 -c 'import json,os; r=json.loads(os.environ["JSON_RESULT"]); assert r["departure"]==30 and r["arrival"]==50 and r["arrival"]<=60'
+deadline_bound=$($bin --from Aster --to Bramble --arrive-by 00:35 --max-duration 20 --json)
+JSON_RESULT="$deadline_bound" python3 -c 'import json,os; r=json.loads(os.environ["JSON_RESULT"]); assert r["arrival"] <= 35'
+if $bin --from Aster --to Bramble --arrive-by 00:19 --max-duration 1440 >/dev/null 2>&1; then exit 1; fi
+if $bin --from Aster --to Bramble --at 0 --max-duration 1441 >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --max-duration 20 >/dev/null 2>&1; then exit 1; fi
 direct=$($bin --from Aster --to Fenn --at 0 --avoid-route Aster:Fenn --json)
 JSON_RESULT="$direct" python3 - <<'PY'
 import json, os

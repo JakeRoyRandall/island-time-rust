@@ -351,6 +351,7 @@ fn main() {
     let mut svg_path: Option<String> = None;
     let mut force = false;
     let mut max_legs = 8usize;
+    let mut max_duration: Option<u32> = None;
     let mut json = false;
     let mut list = false;
     let mut journey_option_used = false;
@@ -456,6 +457,11 @@ fn main() {
                         eprintln!("error: max-legs must be 1..8");
                         process::exit(2);
                     });
+            }
+            "--max-duration" => {
+                journey_option_used = true;
+                i += 1;
+                max_duration = Some(args.get(i).and_then(|v| v.parse().ok()).filter(|v: &u32| *v <= 1440).unwrap_or_else(|| { eprintln!("error: max-duration must be an integer from 0 to 1440"); process::exit(2) }));
             }
             _ => {
                 eprintln!("usage: island-time --from ISLAND --to ISLAND --at MINUTE [--avoid ISLAND] [--min-transfer N] | --list-routes [--json]");
@@ -566,10 +572,15 @@ fn main() {
         return;
     }
     let planned = if let Some(deadline) = arrive_by {
-        latest_route_limited_via(from, to, deadline, &avoid, transfer, max_legs, via, &avoid_routes)
-            .map(|(departure, arrival, legs)| (departure, arrival, legs))
+        if let Some(limit) = max_duration {
+            (0..=deadline).rev().find_map(|departure| route_limited_via(from, to, departure, &avoid, transfer, max_legs, via, &avoid_routes).filter(|(arrival, _)| *arrival <= deadline && arrival.saturating_sub(departure) <= limit).map(|(arrival, legs)| (departure, arrival, legs)))
+        } else {
+            latest_route_limited_via(from, to, deadline, &avoid, transfer, max_legs, via, &avoid_routes)
+                .map(|(departure, arrival, legs)| (departure, arrival, legs))
+        }
     } else {
         route_limited_via(from, to, at, &avoid, transfer, max_legs, via, &avoid_routes)
+            .filter(|(arrival, _)| max_duration.map_or(true, |limit| arrival.saturating_sub(at) <= limit))
             .map(|(arrival, legs)| (at, arrival, legs))
     };
     match planned {
