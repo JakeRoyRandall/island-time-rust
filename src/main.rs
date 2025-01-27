@@ -71,6 +71,16 @@ const FERRIES: [Ferry; 8] = [
 fn island(name: &str) -> Option<usize> {
     ISLANDS.iter().position(|x| x.eq_ignore_ascii_case(name))
 }
+fn parse_clock(value: &str) -> Option<u32> {
+    let mut parts = value.split(':');
+    let hour: u32 = parts.next()?.parse().ok()?;
+    let minute: u32 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || hour > 24 || minute >= 60 {
+        return None;
+    }
+    let total = hour * 60 + minute;
+    (total <= 1440).then_some(total)
+}
 fn depart(now: u32, ferry: Ferry) -> Option<u32> {
     let d = if now <= ferry.first {
         ferry.first
@@ -115,6 +125,22 @@ fn route(
                     p.push((u, f.to, d, arrival));
                     paths[f.to] = p;
                 }
+            }
+        }
+    }
+    None
+}
+fn latest_route(
+    from: usize,
+    to: usize,
+    deadline: u32,
+    avoid: &[bool; 6],
+    transfer: u32,
+) -> Option<(u32, u32, Vec<(usize, usize, u32, u32)>)> {
+    for departure in (0..=deadline).rev() {
+        if let Some((arrival, legs)) = route(from, to, departure, avoid, transfer) {
+            if arrival <= deadline {
+                return Some((departure, arrival, legs));
             }
         }
     }
@@ -188,6 +214,8 @@ fn main() {
     let mut from_name = None;
     let mut to_name = None;
     let mut at = None;
+    let mut arrive_by = None;
+    let mut bad_time = false;
     let mut avoid = [false; 6];
     let mut transfer = 0;
     let mut svg_path: Option<String> = None;
@@ -206,6 +234,16 @@ fn main() {
             "--at" => {
                 i += 1;
                 at = args.get(i).and_then(|v| v.parse().ok());
+                if at.is_none() {
+                    bad_time = true;
+                }
+            }
+            "--arrive-by" => {
+                i += 1;
+                arrive_by = args.get(i).and_then(|v| parse_clock(v));
+                if arrive_by.is_none() {
+                    bad_time = true;
+                }
             }
             "--avoid" => {
                 i += 1;
@@ -246,16 +284,23 @@ fn main() {
         }
         i += 1;
     }
-    if from_name.is_none() || to_name.is_none() || at.is_none() {
-        eprintln!("usage: island-time --from ISLAND --to ISLAND --at MINUTE");
+    if bad_time {
+        eprintln!("error: invalid --at or --arrive-by value");
+        process::exit(2);
+    }
+    if from_name.is_none() || to_name.is_none() || (at.is_none() == arrive_by.is_none()) {
+        eprintln!("usage: island-time --from ISLAND --to ISLAND (--at MINUTE | --arrive-by HH:MM)");
         process::exit(2);
     }
     let from = island(from_name.unwrap());
     let to = island(to_name.unwrap());
-    let at = at.filter(|x: &u32| *x <= 1440).unwrap_or_else(|| {
-        eprintln!("error: at must be an integer from 0 to 1440");
-        process::exit(2)
-    });
+    let at = at
+        .filter(|x: &u32| *x <= 1440)
+        .or_else(|| arrive_by)
+        .unwrap_or_else(|| {
+            eprintln!("error: at must be an integer from 0 to 1440");
+            process::exit(2)
+        });
     let (from, to) = match (from, to) {
         (Some(a), Some(b)) => (a, b),
         _ => {
@@ -268,6 +313,26 @@ fn main() {
         process::exit(1);
     }
     if from == to {
+        if let Some(deadline) = arrive_by {
+            println!("already at {} by minute {}", ISLANDS[from], deadline);
+            if let Some(path) = svg_path {
+                if let Err(e) = write_svg(
+                    &path,
+                    force,
+                    from,
+                    to,
+                    deadline,
+                    deadline,
+                    &[],
+                    &avoid,
+                    transfer,
+                ) {
+                    eprintln!("error: {e}");
+                    process::exit(2);
+                }
+            }
+            return;
+        }
         println!("already at {} at minute {}", ISLANDS[from], at);
         if let Some(path) = svg_path {
             if let Err(e) = write_svg(&path, force, from, to, at, at, &[], &avoid, transfer) {
@@ -277,11 +342,17 @@ fn main() {
         }
         return;
     }
-    match route(from, to, at, &avoid, transfer) {
-        Some((arrival, legs)) => {
+    let planned = if let Some(deadline) = arrive_by {
+        latest_route(from, to, deadline, &avoid, transfer)
+            .map(|(departure, arrival, legs)| (departure, arrival, legs))
+    } else {
+        route(from, to, at, &avoid, transfer).map(|(arrival, legs)| (at, arrival, legs))
+    };
+    match planned {
+        Some((departure, arrival, legs)) => {
             println!(
                 "route {} -> {} (departed at {}, arrive at {})",
-                ISLANDS[from], ISLANDS[to], at, arrival
+                ISLANDS[from], ISLANDS[to], departure, arrival
             );
             for &(a, b, d, end) in &legs {
                 println!(
@@ -290,9 +361,9 @@ fn main() {
                 );
             }
             if let Some(path) = svg_path {
-                if let Err(e) =
-                    write_svg(&path, force, from, to, at, arrival, &legs, &avoid, transfer)
-                {
+                if let Err(e) = write_svg(
+                    &path, force, from, to, departure, arrival, &legs, &avoid, transfer,
+                ) {
                     eprintln!("error: {e}");
                     process::exit(2);
                 }
@@ -365,5 +436,13 @@ mod tests {
         );
         assert!(write_svg(path, false, 0, 4, 0, 170, &legs, &[false; 6], 0).is_err());
         let _ = std::fs::remove_file(path);
+    }
+    #[test]
+    fn latest_departure_meets_deadline() {
+        let (departure, arrival, legs) = latest_route(0, 1, 60, &[false; 6], 0).unwrap();
+        assert_eq!((departure, arrival, legs[0].2), (30, 50, 30));
+        assert!(latest_route(0, 1, 19, &[false; 6], 0).is_none());
+        assert_eq!(parse_clock("24:00"), Some(1440));
+        assert_eq!(parse_clock("24:01"), None);
     }
 }
