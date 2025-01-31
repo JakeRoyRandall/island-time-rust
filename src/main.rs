@@ -89,6 +89,7 @@ fn depart(now: u32, ferry: Ferry) -> Option<u32> {
     };
     (d <= 1440).then_some(d)
 }
+#[cfg(test)]
 fn route(
     from: usize,
     to: usize,
@@ -96,40 +97,9 @@ fn route(
     avoid: &[bool; 6],
     transfer: u32,
 ) -> Option<(u32, Vec<(usize, usize, u32, u32)>)> {
-    if avoid[from] || avoid[to] {
-        return None;
-    }
-    let mut best = [u32::MAX; 6];
-    let mut paths: [Vec<(usize, usize, u32, u32)>; 6] = std::array::from_fn(|_| Vec::new());
-    best[from] = at;
-    let mut used = [false; 6];
-    for _ in 0..6 {
-        let mut current = None;
-        for i in 0..6 {
-            if !used[i] && best[i] != u32::MAX && current.map_or(true, |c| best[i] < best[c]) {
-                current = Some(i);
-            }
-        }
-        let u = current?;
-        used[u] = true;
-        if u == to {
-            return Some((best[u], paths[u].clone()));
-        }
-        for f in FERRIES.iter().filter(|f| f.from == u && !avoid[f.to]) {
-            let ready = best[u] + if paths[u].is_empty() { 0 } else { transfer };
-            if let Some(d) = depart(ready, *f) {
-                let arrival = d + f.travel;
-                if arrival <= 1440 && arrival < best[f.to] {
-                    best[f.to] = arrival;
-                    let mut p = paths[u].clone();
-                    p.push((u, f.to, d, arrival));
-                    paths[f.to] = p;
-                }
-            }
-        }
-    }
-    None
+    route_limited(from, to, at, avoid, transfer, 8)
 }
+#[cfg(test)]
 fn latest_route(
     from: usize,
     to: usize,
@@ -137,10 +107,70 @@ fn latest_route(
     avoid: &[bool; 6],
     transfer: u32,
 ) -> Option<(u32, u32, Vec<(usize, usize, u32, u32)>)> {
+    latest_route_limited(from, to, deadline, avoid, transfer, 8)
+}
+fn latest_route_limited(
+    from: usize,
+    to: usize,
+    deadline: u32,
+    avoid: &[bool; 6],
+    transfer: u32,
+    max_legs: usize,
+) -> Option<(u32, u32, Vec<(usize, usize, u32, u32)>)> {
     for departure in (0..=deadline).rev() {
-        if let Some((arrival, legs)) = route(from, to, departure, avoid, transfer) {
+        if let Some((arrival, legs)) = route_limited(from, to, departure, avoid, transfer, max_legs)
+        {
             if arrival <= deadline {
                 return Some((departure, arrival, legs));
+            }
+        }
+    }
+    None
+}
+fn route_limited(
+    from: usize,
+    to: usize,
+    at: u32,
+    avoid: &[bool; 6],
+    transfer: u32,
+    max_legs: usize,
+) -> Option<(u32, Vec<(usize, usize, u32, u32)>)> {
+    if max_legs == 0 || avoid[from] || avoid[to] {
+        return None;
+    }
+    let mut best = [[u32::MAX; 9]; 6];
+    let mut settled = [[false; 9]; 6];
+    let mut paths: [[Vec<(usize, usize, u32, u32)>; 9]; 6] =
+        std::array::from_fn(|_| std::array::from_fn(|_| Vec::new()));
+    best[from][0] = at;
+    for _ in 0..54 {
+        let mut state: Option<(usize, usize)> = None;
+        for i in 0..6 {
+            for l in 0..=max_legs.min(8) {
+                if !settled[i][l]
+                    && best[i][l] != u32::MAX
+                    && state.map_or(true, |(a, b)| best[i][l] < best[a][b])
+                {
+                    state = Some((i, l));
+                }
+            }
+        }
+        let (u, l) = state?;
+        let now = best[u][l];
+        settled[u][l] = true;
+        if u == to {
+            return Some((now, paths[u][l].clone()));
+        }
+        let ready = paths[u][l].last().map_or(now, |_| now + transfer);
+        for f in FERRIES.iter().filter(|f| f.from == u && !avoid[f.to]) {
+            if let Some(d) = depart(ready, *f) {
+                let arrival = d + f.travel;
+                if arrival <= 1440 && l < max_legs && arrival < best[f.to][l + 1] {
+                    best[f.to][l + 1] = arrival;
+                    let mut p = paths[u][l].clone();
+                    p.push((u, f.to, d, arrival));
+                    paths[f.to][l + 1] = p;
+                }
             }
         }
     }
@@ -220,6 +250,7 @@ fn main() {
     let mut transfer = 0;
     let mut svg_path: Option<String> = None;
     let mut force = false;
+    let mut max_legs = 8usize;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -277,6 +308,17 @@ fn main() {
                 }
             }
             "--force" => force = true,
+            "--max-legs" => {
+                i += 1;
+                max_legs = args
+                    .get(i)
+                    .and_then(|v| v.parse().ok())
+                    .filter(|v: &usize| (1..=8).contains(v))
+                    .unwrap_or_else(|| {
+                        eprintln!("error: max-legs must be 1..8");
+                        process::exit(2);
+                    });
+            }
             _ => {
                 eprintln!("usage: island-time --from ISLAND --to ISLAND --at MINUTE [--avoid ISLAND] [--min-transfer N]");
                 process::exit(2);
@@ -343,10 +385,11 @@ fn main() {
         return;
     }
     let planned = if let Some(deadline) = arrive_by {
-        latest_route(from, to, deadline, &avoid, transfer)
+        latest_route_limited(from, to, deadline, &avoid, transfer, max_legs)
             .map(|(departure, arrival, legs)| (departure, arrival, legs))
     } else {
-        route(from, to, at, &avoid, transfer).map(|(arrival, legs)| (at, arrival, legs))
+        route_limited(from, to, at, &avoid, transfer, max_legs)
+            .map(|(arrival, legs)| (at, arrival, legs))
     };
     match planned {
         Some((departure, arrival, legs)) => {
@@ -444,5 +487,12 @@ mod tests {
         assert!(latest_route(0, 1, 19, &[false; 6], 0).is_none());
         assert_eq!(parse_clock("24:00"), Some(1440));
         assert_eq!(parse_clock("24:01"), None);
+    }
+    #[test]
+    fn leg_limits_apply_to_earliest_and_latest_routes() {
+        assert!(route_limited(0, 4, 0, &[false; 6], 0, 3).is_none());
+        assert!(route_limited(0, 4, 0, &[false; 6], 0, 4).is_some());
+        assert!(latest_route_limited(0, 4, 200, &[false; 6], 0, 3).is_none());
+        assert!(latest_route_limited(0, 4, 200, &[false; 6], 0, 4).is_some());
     }
 }

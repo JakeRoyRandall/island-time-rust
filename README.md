@@ -17,4 +17,6 @@ The app also accepts repeatable `--avoid ISLAND` filters and `--min-transfer N` 
 
 Use exactly one of `--at MINUTE` or `--arrive-by HH:MM`. The latter searches the fixed timetable for the latest feasible departure whose arrival meets the deadline, while retaining the same avoidance and transfer constraints. `24:00` is the day endpoint.
 
+`--max-legs N` limits either search to `1..8` ferry legs. The planner tracks each island and leg count separately, so a faster route that uses more legs cannot hide a feasible constrained route.
+
 Use `--svg FILE` to write an offline SVG map with fixed island nodes, highlighted numbered legs, departure/arrival details, transfer buffer, avoided-island styling, and total arrival. Output creation is exclusive unless `--force` is provided; normal itinerary text still goes to stdout.
