@@ -97,7 +97,7 @@ fn route(
     avoid: &[bool; 6],
     transfer: u32,
 ) -> Option<(u32, Vec<(usize, usize, u32, u32)>)> {
-    route_limited(from, to, at, avoid, transfer, 8)
+    route_limited_via(from, to, at, avoid, transfer, 8, None)
 }
 #[cfg(test)]
 fn latest_route(
@@ -107,8 +107,9 @@ fn latest_route(
     avoid: &[bool; 6],
     transfer: u32,
 ) -> Option<(u32, u32, Vec<(usize, usize, u32, u32)>)> {
-    latest_route_limited(from, to, deadline, avoid, transfer, 8)
+    latest_route_limited_via(from, to, deadline, avoid, transfer, 8, None)
 }
+#[cfg(test)]
 fn latest_route_limited(
     from: usize,
     to: usize,
@@ -117,8 +118,20 @@ fn latest_route_limited(
     transfer: u32,
     max_legs: usize,
 ) -> Option<(u32, u32, Vec<(usize, usize, u32, u32)>)> {
+    latest_route_limited_via(from, to, deadline, avoid, transfer, max_legs, None)
+}
+fn latest_route_limited_via(
+    from: usize,
+    to: usize,
+    deadline: u32,
+    avoid: &[bool; 6],
+    transfer: u32,
+    max_legs: usize,
+    via: Option<usize>,
+) -> Option<(u32, u32, Vec<(usize, usize, u32, u32)>)> {
     for departure in (0..=deadline).rev() {
-        if let Some((arrival, legs)) = route_limited(from, to, departure, avoid, transfer, max_legs)
+        if let Some((arrival, legs)) =
+            route_limited_via(from, to, departure, avoid, transfer, max_legs, via)
         {
             if arrival <= deadline {
                 return Some((departure, arrival, legs));
@@ -127,6 +140,7 @@ fn latest_route_limited(
     }
     None
 }
+#[cfg(test)]
 fn route_limited(
     from: usize,
     to: usize,
@@ -135,41 +149,59 @@ fn route_limited(
     transfer: u32,
     max_legs: usize,
 ) -> Option<(u32, Vec<(usize, usize, u32, u32)>)> {
+    route_limited_via(from, to, at, avoid, transfer, max_legs, None)
+}
+fn route_limited_via(
+    from: usize,
+    to: usize,
+    at: u32,
+    avoid: &[bool; 6],
+    transfer: u32,
+    max_legs: usize,
+    via: Option<usize>,
+) -> Option<(u32, Vec<(usize, usize, u32, u32)>)> {
     if max_legs == 0 || avoid[from] || avoid[to] {
         return None;
     }
-    let mut best = [[u32::MAX; 9]; 6];
-    let mut settled = [[false; 9]; 6];
-    let mut paths: [[Vec<(usize, usize, u32, u32)>; 9]; 6] =
-        std::array::from_fn(|_| std::array::from_fn(|_| Vec::new()));
-    best[from][0] = at;
-    for _ in 0..54 {
-        let mut state: Option<(usize, usize)> = None;
+    if via.is_some_and(|island| avoid[island]) {
+        return None;
+    }
+    let mut best = [[[u32::MAX; 2]; 9]; 6];
+    let mut settled = [[[false; 2]; 9]; 6];
+    let mut paths: [[[Vec<(usize, usize, u32, u32)>; 2]; 9]; 6] =
+        std::array::from_fn(|_| std::array::from_fn(|_| std::array::from_fn(|_| Vec::new())));
+    let initial_via = usize::from(via == Some(from));
+    best[from][0][initial_via] = at;
+    for _ in 0..108 {
+        let mut state: Option<(usize, usize, usize)> = None;
         for i in 0..6 {
             for l in 0..=max_legs.min(8) {
-                if !settled[i][l]
-                    && best[i][l] != u32::MAX
-                    && state.map_or(true, |(a, b)| best[i][l] < best[a][b])
-                {
-                    state = Some((i, l));
+                for v in 0..=1 {
+                    if !settled[i][l][v]
+                        && best[i][l][v] != u32::MAX
+                        && state.map_or(true, |(a, b, c)| best[i][l][v] < best[a][b][c])
+                    {
+                        state = Some((i, l, v));
+                    }
                 }
             }
         }
-        let (u, l) = state?;
-        let now = best[u][l];
-        settled[u][l] = true;
-        if u == to {
-            return Some((now, paths[u][l].clone()));
+        let (u, l, v) = state?;
+        let now = best[u][l][v];
+        settled[u][l][v] = true;
+        if u == to && (via.is_none() || v == 1) {
+            return Some((now, paths[u][l][v].clone()));
         }
-        let ready = paths[u][l].last().map_or(now, |_| now + transfer);
+        let ready = paths[u][l][v].last().map_or(now, |_| now + transfer);
         for f in FERRIES.iter().filter(|f| f.from == u && !avoid[f.to]) {
             if let Some(d) = depart(ready, *f) {
                 let arrival = d + f.travel;
-                if arrival <= 1440 && l < max_legs && arrival < best[f.to][l + 1] {
-                    best[f.to][l + 1] = arrival;
-                    let mut p = paths[u][l].clone();
+                let next_v = usize::from(v == 1 || via == Some(f.to));
+                if arrival <= 1440 && l < max_legs && arrival < best[f.to][l + 1][next_v] {
+                    best[f.to][l + 1][next_v] = arrival;
+                    let mut p = paths[u][l][v].clone();
                     p.push((u, f.to, d, arrival));
-                    paths[f.to][l + 1] = p;
+                    paths[f.to][l + 1][next_v] = p;
                 }
             }
         }
@@ -249,6 +281,7 @@ fn json_route(
     max_legs: usize,
     avoid: &[bool; 6],
     transfer: u32,
+    via: Option<usize>,
 ) -> String {
     let avoided = (0..ISLANDS.len())
         .filter(|&i| avoid[i])
@@ -256,8 +289,15 @@ fn json_route(
         .collect::<Vec<_>>()
         .join(",");
     let mut output = format!(
-        "{{\"schema_version\":1,\"from\":\"{}\",\"to\":\"{}\",\"departure\":{},\"arrival\":{},\"max_legs\":{},\"min_transfer\":{},\"avoid\":[{}],\"legs\":[",
-        ISLANDS[from], ISLANDS[to], departure, arrival, max_legs, transfer, avoided
+        "{{\"schema_version\":1,\"from\":\"{}\",\"to\":\"{}\",\"via\":{},\"departure\":{},\"arrival\":{},\"max_legs\":{},\"min_transfer\":{},\"avoid\":[{}],\"legs\":[",
+        ISLANDS[from],
+        ISLANDS[to],
+        via.map_or_else(|| "null".to_string(), |i| format!("\"{}\"", ISLANDS[i])),
+        departure,
+        arrival,
+        max_legs,
+        transfer,
+        avoided
     );
     for (n, &(a, b, depart, arrive)) in legs.iter().enumerate() {
         if n > 0 {
@@ -281,6 +321,7 @@ fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut from_name = None;
     let mut to_name = None;
+    let mut via_name = None;
     let mut at = None;
     let mut arrive_by = None;
     let mut bad_time = false;
@@ -300,6 +341,20 @@ fn main() {
             "--to" => {
                 i += 1;
                 to_name = args.get(i);
+            }
+            "--via" => {
+                if via_name.is_some() {
+                    eprintln!("error: duplicate --via");
+                    process::exit(2);
+                }
+                i += 1;
+                via_name = match args.get(i) {
+                    Some(name) => Some(name),
+                    None => {
+                        eprintln!("error: --via requires an island");
+                        process::exit(2);
+                    }
+                };
             }
             "--at" => {
                 i += 1;
@@ -376,6 +431,11 @@ fn main() {
     }
     let from = island(from_name.unwrap());
     let to = island(to_name.unwrap());
+    let via = via_name.and_then(|name| island(name));
+    if via_name.is_some() && via.is_none() {
+        eprintln!("error: unknown via island");
+        process::exit(2);
+    }
     let at = at
         .filter(|x: &u32| *x <= 1440)
         .or_else(|| arrive_by)
@@ -390,11 +450,17 @@ fn main() {
             process::exit(2)
         }
     };
+    if let Some(via) = via {
+        if avoid[via] {
+            eprintln!("error: cannot avoid the via island");
+            process::exit(1);
+        }
+    }
     if avoid[from] || avoid[to] {
         eprintln!("error: cannot avoid a route endpoint");
         process::exit(1);
     }
-    if from == to {
+    if from == to && (via.is_none() || via == Some(from)) {
         if let Some(deadline) = arrive_by {
             if json {
                 println!(
@@ -407,7 +473,8 @@ fn main() {
                         &[],
                         max_legs,
                         &avoid,
-                        transfer
+                        transfer,
+                        via
                     )
                 );
             } else {
@@ -434,7 +501,7 @@ fn main() {
         if json {
             println!(
                 "{}",
-                json_route(from, to, at, at, &[], max_legs, &avoid, transfer)
+                json_route(from, to, at, at, &[], max_legs, &avoid, transfer, via)
             );
         } else {
             println!("already at {} at minute {}", ISLANDS[from], at);
@@ -448,10 +515,10 @@ fn main() {
         return;
     }
     let planned = if let Some(deadline) = arrive_by {
-        latest_route_limited(from, to, deadline, &avoid, transfer, max_legs)
+        latest_route_limited_via(from, to, deadline, &avoid, transfer, max_legs, via)
             .map(|(departure, arrival, legs)| (departure, arrival, legs))
     } else {
-        route_limited(from, to, at, &avoid, transfer, max_legs)
+        route_limited_via(from, to, at, &avoid, transfer, max_legs, via)
             .map(|(arrival, legs)| (at, arrival, legs))
     };
     match planned {
@@ -459,7 +526,9 @@ fn main() {
             if json {
                 println!(
                     "{}",
-                    json_route(from, to, departure, arrival, &legs, max_legs, &avoid, transfer)
+                    json_route(
+                        from, to, departure, arrival, &legs, max_legs, &avoid, transfer, via
+                    )
                 );
                 if let Some(path) = svg_path {
                     if let Err(e) = write_svg(
@@ -572,5 +641,22 @@ mod tests {
         assert!(route_limited(0, 4, 0, &[false; 6], 0, 4).is_some());
         assert!(latest_route_limited(0, 4, 200, &[false; 6], 0, 3).is_none());
         assert!(latest_route_limited(0, 4, 200, &[false; 6], 0, 4).is_some());
+    }
+    #[test]
+    fn via_shares_route_state_and_leg_budget() {
+        let forced = route_limited_via(0, 5, 0, &[false; 6], 0, 8, Some(1)).unwrap();
+        assert!(forced.1.iter().any(|leg| leg.1 == 1));
+        assert!(route_limited_via(0, 5, 0, &[false; 6], 0, 2, Some(1)).is_none());
+        assert!(latest_route_limited_via(0, 5, 300, &[false; 6], 0, 8, Some(1)).is_some());
+    }
+    #[test]
+    fn via_origin_destination_and_avoidance() {
+        let via_origin = route_limited_via(0, 5, 0, &[false; 6], 0, 1, Some(0)).unwrap();
+        let via_destination = route_limited_via(0, 5, 0, &[false; 6], 0, 1, Some(5)).unwrap();
+        assert_eq!(via_origin.0, 100);
+        assert_eq!(via_destination.0, 100);
+        let mut avoid = [false; 6];
+        avoid[1] = true;
+        assert!(route_limited_via(0, 5, 0, &avoid, 0, 8, Some(1)).is_none());
     }
 }

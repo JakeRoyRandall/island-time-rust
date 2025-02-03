@@ -22,4 +22,27 @@ assert r['from'] == 'Aster' and r['to'] == 'Fenn'
 assert r['avoid'] == ['Bramble'] and r['min_transfer'] == 10
 assert all(leg['from'] != 'Bramble' and leg['to'] != 'Bramble' for leg in r['legs'])
 PY
+via=$($bin --from Aster --to Fenn --at 0 --via Bramble --json)
+JSON_RESULT="$via" python3 - <<'PY'
+import json, os
+r = json.loads(os.environ['JSON_RESULT'])
+assert r['via'] == 'Bramble' and any(leg['to'] == 'Bramble' for leg in r['legs'])
+PY
+latest_via=$($bin --from Aster --to Fenn --arrive-by 05:00 --via Bramble --json)
+JSON_RESULT="$latest_via" python3 - <<'PY'
+import json, os
+r = json.loads(os.environ['JSON_RESULT'])
+assert r['via'] == 'Bramble' and r['arrival'] <= 300
+PY
+if $bin --from Aster --to Fenn --at 0 --via Bramble --avoid Bramble >/dev/null 2>&1; then exit 1; fi
+set +e
+$bin --from Aster --to Fenn --at 0 --via >/dev/null 2>&1
+status=$?
+set -e
+test "$status" -eq 2
+set +e
+$bin --from Aster --to Fenn --at 0 --via Bramble --via Aster >/dev/null 2>&1
+status=$?
+set -e
+test "$status" -eq 2
 echo 'CLI parity and max-legs bounds passed'
