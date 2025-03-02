@@ -90,6 +90,8 @@ fn depart(now: u32, ferry: Ferry) -> Option<u32> {
     (d <= 1440).then_some(d)
 }
 #[cfg(test)]
+fn no_avoided_routes() -> [[bool; 6]; 6] { [[false; 6]; 6] }
+#[cfg(test)]
 fn route(
     from: usize,
     to: usize,
@@ -97,7 +99,7 @@ fn route(
     avoid: &[bool; 6],
     transfer: u32,
 ) -> Option<(u32, Vec<(usize, usize, u32, u32)>)> {
-    route_limited_via(from, to, at, avoid, transfer, 8, None)
+    route_limited_via(from, to, at, avoid, transfer, 8, None, &no_avoided_routes())
 }
 #[cfg(test)]
 fn latest_route(
@@ -107,7 +109,7 @@ fn latest_route(
     avoid: &[bool; 6],
     transfer: u32,
 ) -> Option<(u32, u32, Vec<(usize, usize, u32, u32)>)> {
-    latest_route_limited_via(from, to, deadline, avoid, transfer, 8, None)
+    latest_route_limited_via(from, to, deadline, avoid, transfer, 8, None, &no_avoided_routes())
 }
 #[cfg(test)]
 fn latest_route_limited(
@@ -118,7 +120,7 @@ fn latest_route_limited(
     transfer: u32,
     max_legs: usize,
 ) -> Option<(u32, u32, Vec<(usize, usize, u32, u32)>)> {
-    latest_route_limited_via(from, to, deadline, avoid, transfer, max_legs, None)
+    latest_route_limited_via(from, to, deadline, avoid, transfer, max_legs, None, &no_avoided_routes())
 }
 fn latest_route_limited_via(
     from: usize,
@@ -128,10 +130,11 @@ fn latest_route_limited_via(
     transfer: u32,
     max_legs: usize,
     via: Option<usize>,
+    avoid_routes: &[[bool; 6]; 6],
 ) -> Option<(u32, u32, Vec<(usize, usize, u32, u32)>)> {
     for departure in (0..=deadline).rev() {
         if let Some((arrival, legs)) =
-            route_limited_via(from, to, departure, avoid, transfer, max_legs, via)
+            route_limited_via(from, to, departure, avoid, transfer, max_legs, via, avoid_routes)
         {
             if arrival <= deadline {
                 return Some((departure, arrival, legs));
@@ -149,7 +152,7 @@ fn route_limited(
     transfer: u32,
     max_legs: usize,
 ) -> Option<(u32, Vec<(usize, usize, u32, u32)>)> {
-    route_limited_via(from, to, at, avoid, transfer, max_legs, None)
+    route_limited_via(from, to, at, avoid, transfer, max_legs, None, &no_avoided_routes())
 }
 fn route_limited_via(
     from: usize,
@@ -159,6 +162,7 @@ fn route_limited_via(
     transfer: u32,
     max_legs: usize,
     via: Option<usize>,
+    avoid_route: &[[bool; 6]; 6],
 ) -> Option<(u32, Vec<(usize, usize, u32, u32)>)> {
     if max_legs == 0 || avoid[from] || avoid[to] {
         return None;
@@ -193,7 +197,7 @@ fn route_limited_via(
             return Some((now, paths[u][l][v].clone()));
         }
         let ready = paths[u][l][v].last().map_or(now, |_| now + transfer);
-        for f in FERRIES.iter().filter(|f| f.from == u && !avoid[f.to]) {
+        for f in FERRIES.iter().filter(|f| f.from == u && !avoid[f.to] && !avoid_route[f.from][f.to]) {
             if let Some(d) = depart(ready, *f) {
                 let arrival = d + f.travel;
                 let next_v = usize::from(v == 1 || via == Some(f.to));
@@ -342,6 +346,7 @@ fn main() {
     let mut arrive_by = None;
     let mut bad_time = false;
     let mut avoid = [false; 6];
+    let mut avoid_routes = [[false; 6]; 6];
     let mut transfer = 0;
     let mut svg_path: Option<String> = None;
     let mut force = false;
@@ -405,6 +410,16 @@ fn main() {
                     process::exit(2);
                 }
                 avoid[name] = true;
+            }
+            "--avoid-route" => {
+                journey_option_used = true;
+                i += 1;
+                let value = args.get(i).unwrap_or_else(|| { eprintln!("error: --avoid-route requires FROM:TO"); process::exit(2) });
+                let (from_value, to_value) = value.split_once(':').unwrap_or_else(|| { eprintln!("error: avoid-route must be FROM:TO"); process::exit(2) });
+                let a = island(from_value).unwrap_or_else(|| { eprintln!("error: unknown avoid-route island"); process::exit(2) });
+                let b = island(to_value).unwrap_or_else(|| { eprintln!("error: unknown avoid-route island"); process::exit(2) });
+                if avoid_routes[a][b] { eprintln!("error: duplicate avoid-route"); process::exit(2); }
+                avoid_routes[a][b] = true;
             }
             "--min-transfer" => {
                 journey_option_used = true;
@@ -551,10 +566,10 @@ fn main() {
         return;
     }
     let planned = if let Some(deadline) = arrive_by {
-        latest_route_limited_via(from, to, deadline, &avoid, transfer, max_legs, via)
+        latest_route_limited_via(from, to, deadline, &avoid, transfer, max_legs, via, &avoid_routes)
             .map(|(departure, arrival, legs)| (departure, arrival, legs))
     } else {
-        route_limited_via(from, to, at, &avoid, transfer, max_legs, via)
+        route_limited_via(from, to, at, &avoid, transfer, max_legs, via, &avoid_routes)
             .map(|(arrival, legs)| (at, arrival, legs))
     };
     match planned {
@@ -680,19 +695,19 @@ mod tests {
     }
     #[test]
     fn via_shares_route_state_and_leg_budget() {
-        let forced = route_limited_via(0, 5, 0, &[false; 6], 0, 8, Some(1)).unwrap();
+        let forced = route_limited_via(0, 5, 0, &[false; 6], 0, 8, Some(1), &no_avoided_routes()).unwrap();
         assert!(forced.1.iter().any(|leg| leg.1 == 1));
-        assert!(route_limited_via(0, 5, 0, &[false; 6], 0, 2, Some(1)).is_none());
-        assert!(latest_route_limited_via(0, 5, 300, &[false; 6], 0, 8, Some(1)).is_some());
+        assert!(route_limited_via(0, 5, 0, &[false; 6], 0, 2, Some(1), &no_avoided_routes()).is_none());
+        assert!(latest_route_limited_via(0, 5, 300, &[false; 6], 0, 8, Some(1), &no_avoided_routes()).is_some());
     }
     #[test]
     fn via_origin_destination_and_avoidance() {
-        let via_origin = route_limited_via(0, 5, 0, &[false; 6], 0, 1, Some(0)).unwrap();
-        let via_destination = route_limited_via(0, 5, 0, &[false; 6], 0, 1, Some(5)).unwrap();
+        let via_origin = route_limited_via(0, 5, 0, &[false; 6], 0, 1, Some(0), &no_avoided_routes()).unwrap();
+        let via_destination = route_limited_via(0, 5, 0, &[false; 6], 0, 1, Some(5), &no_avoided_routes()).unwrap();
         assert_eq!(via_origin.0, 100);
         assert_eq!(via_destination.0, 100);
         let mut avoid = [false; 6];
         avoid[1] = true;
-        assert!(route_limited_via(0, 5, 0, &avoid, 0, 8, Some(1)).is_none());
+        assert!(route_limited_via(0, 5, 0, &avoid, 0, 8, Some(1), &no_avoided_routes()).is_none());
     }
 }

@@ -60,4 +60,34 @@ if $bin --list-routes --json --max-legs 1 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --min-transfer 0 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --max-legs 8 >/dev/null 2>&1; then exit 1; fi
 if $bin --list-routes --force >/dev/null 2>&1; then exit 1; fi
+direct=$($bin --from Aster --to Fenn --at 0 --avoid-route Aster:Fenn --json)
+JSON_RESULT="$direct" python3 - <<'PY'
+import json, os
+r=json.loads(os.environ['JSON_RESULT']); assert len(r['legs']) > 1
+assert not any(x['from']=='Aster' and x['to']=='Fenn' for x in r['legs'])
+PY
+reverse=$($bin --from Aster --to Fenn --at 0 --avoid-route Fenn:Aster --json)
+JSON_RESULT="$reverse" python3 -c 'import json,os; r=json.loads(os.environ["JSON_RESULT"]); assert r["legs"][-1]["from"] == "Aster" and r["legs"][-1]["to"] == "Fenn"'
+if $bin --from Aster --to Fenn --at 0 --avoid-route Aster:Fenn --avoid-route Aster:Fenn >/dev/null 2>&1; then exit 1; fi
+if $bin --list-routes --avoid-route Aster:Fenn >/dev/null 2>&1; then exit 1; fi
+if $bin --from Aster --to Fenn --at 0 --avoid-route Nope:Fenn >/dev/null 2>&1; then exit 1; fi
+deadline=$($bin --from Aster --to Fenn --arrive-by 05:00 --avoid-route Aster:Fenn --json)
+JSON_RESULT="$deadline" python3 - <<'PY'
+import json, os
+r=json.loads(os.environ['JSON_RESULT']); assert r['arrival'] <= 300
+assert all((x['from'], x['to']) != ('Aster','Fenn') for x in r['legs'])
+PY
+via_excluded=$($bin --from Aster --to Fenn --at 0 --via Bramble --avoid-route Aster:Fenn --json)
+JSON_RESULT="$via_excluded" python3 - <<'PY'
+import json, os
+r=json.loads(os.environ['JSON_RESULT']); assert r['via']=='Bramble'
+assert all((x['from'], x['to']) != ('Aster','Fenn') for x in r['legs'])
+PY
+if $bin --from Aster --to Fenn --at 0 --max-legs 1 --avoid-route Aster:Fenn >/dev/null 2>&1; then exit 1; fi
+multi=$($bin --from Aster --to Fenn --at 0 --avoid-route Aster:Fenn --avoid-route Bramble:Aster --json)
+JSON_RESULT="$multi" python3 - <<'PY'
+import json, os
+r=json.loads(os.environ['JSON_RESULT'])
+assert all((x['from'], x['to']) not in {('Aster','Fenn'),('Bramble','Aster')} for x in r['legs'])
+PY
 echo 'CLI parity and max-legs bounds passed'
